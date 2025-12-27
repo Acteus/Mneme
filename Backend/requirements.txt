@@ -1,0 +1,15 @@
+# Mneme - Python Backend Dependencies
+# Local-first thinking tool
+
+# Sentence embeddings for semantic search
+sentence-transformers>=2.6.0
+
+# Database
+# sqlite-vec==0.1.1  # SQLite vector extension (optional, for future optimization)
+
+# Core utilities
+numpy>=1.24.0
+torch>=2.0.0
+
+# JSON handling (standard library, listed for clarity)
+# json - built-in
