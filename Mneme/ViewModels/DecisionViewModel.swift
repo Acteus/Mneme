@@ -16,12 +16,19 @@ class DecisionViewModel: ObservableObject {
     @Published var isSimulating = false
     @Published var isLoading = false
     @Published var error: String?
+    @Published var showError = false
     
     private let bridge = PythonBridge.shared
     
     // MARK: - Decision Operations
     
     func loadDecisions(status: DecisionStatus? = nil) async {
+        // #region agent log
+        let logPath = "/Users/gdullas/Desktop/Projects/Mneme/.cursor/debug.log"
+        let logEntry = "{\"location\":\"DecisionViewModel.swift:27\",\"message\":\"loadDecisions - using detached task\",\"data\":{},\"timestamp\":\(Date().timeIntervalSince1970 * 1000),\"sessionId\":\"debug-session\",\"hypothesisId\":\"K\",\"runId\":\"post-fix-v5\"}\n"
+        if let data = logEntry.data(using: .utf8), let handle = FileHandle(forWritingAtPath: logPath) { handle.seekToEndOfFile(); handle.write(data); handle.closeFile() } else { FileManager.default.createFile(atPath: logPath, contents: logEntry.data(using: .utf8)) }
+        // #endregion
+        
         isLoading = true
         error = nil
         
@@ -169,6 +176,12 @@ class DecisionViewModel: ObservableObject {
     }
     
     func refreshSelectedDecision() async {
+        // #region agent log
+        let logPath = "/Users/gdullas/Desktop/Projects/Mneme/.cursor/debug.log"
+        let logEntry = "{\"location\":\"DecisionViewModel.swift:171\",\"message\":\"refreshSelectedDecision called\",\"data\":{\"hasDecision\":\(selectedDecision != nil)},\"timestamp\":\(Date().timeIntervalSince1970 * 1000),\"sessionId\":\"debug-session\",\"hypothesisId\":\"E\"}\n"
+        if let data = logEntry.data(using: .utf8), let handle = FileHandle(forWritingAtPath: logPath) { handle.seekToEndOfFile(); handle.write(data); handle.closeFile() } else { FileManager.default.createFile(atPath: logPath, contents: logEntry.data(using: .utf8)) }
+        // #endregion
+        
         guard let decision = selectedDecision else { return }
         if let updated = await loadDecision(decision.id) {
             selectedDecision = updated

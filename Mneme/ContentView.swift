@@ -8,8 +8,8 @@
 import SwiftUI
 
 enum AppSection: String, CaseIterable, Identifiable {
-    case vault = "Knowledge Vault"
-    case decisions = "Decision Simulator"
+    case vault = "Vault"
+    case decisions = "Decisions"
     
     var id: String { rawValue }
     
@@ -19,158 +19,66 @@ enum AppSection: String, CaseIterable, Identifiable {
         case .decisions: return "scale.3d"
         }
     }
-    
-    var description: String {
-        switch self {
-        case .vault: return "Store and search your thoughts"
-        case .decisions: return "Model and simulate decisions"
-        }
-    }
 }
 
 struct ContentView: View {
-    @State private var selectedSection: AppSection? = .vault
-    @StateObject private var bridge = PythonBridge.shared
+    @State private var selectedSection: AppSection = .vault
+    @ObservedObject private var bridge = PythonBridge.shared  // Changed from @StateObject - singleton should use @ObservedObject
+    
+    // #region agent log
+    private func logBody() {
+        let logPath = "/Users/gdullas/Desktop/Projects/Mneme/.cursor/debug.log"
+        let logEntry = "{\"location\":\"ContentView.swift:28\",\"message\":\"ContentView body evaluated\",\"data\":{\"isRunning\":\(bridge.isRunning)},\"timestamp\":\(Date().timeIntervalSince1970 * 1000),\"sessionId\":\"debug-session\",\"hypothesisId\":\"G\",\"runId\":\"post-fix-v3\"}\n"
+        if let data = logEntry.data(using: .utf8), let handle = FileHandle(forWritingAtPath: logPath) { handle.seekToEndOfFile(); handle.write(data); handle.closeFile() } else { FileManager.default.createFile(atPath: logPath, contents: logEntry.data(using: .utf8)) }
+    }
+    // #endregion
     
     var body: some View {
+        let _ = logBody()
         NavigationSplitView {
-            VStack(spacing: 0) {
-                // App header
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Mneme")
-                        .font(.title2)
-                        .fontWeight(.bold)
-                    
-                    Text("Think. Remember. Decide.")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding()
-                
-                Divider()
-                
-                // Navigation
-                List(AppSection.allCases, selection: $selectedSection) { section in
-                    NavigationLink(value: section) {
-                        Label {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(section.rawValue)
-                                    .font(.headline)
-                                
-                                Text(section.description)
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
-                        } icon: {
-                            Image(systemName: section.icon)
-                                .font(.title2)
-                                .foregroundColor(.accentColor)
-                        }
-                        .padding(.vertical, 8)
+            List(selection: $selectedSection) {
+                Section {
+                    ForEach(AppSection.allCases) { section in
+                        Label(section.rawValue, systemImage: section.icon)
+                            .tag(section)
                     }
+                } header: {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Mneme")
+                            .font(.headline)
+                            .foregroundColor(.primary)
+                        
+                        HStack(spacing: 4) {
+                            Circle()
+                                .fill(bridge.isRunning ? Color.green : Color.orange)
+                                .frame(width: 6, height: 6)
+                            Text(bridge.isRunning ? "Ready" : "Starting...")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    .padding(.bottom, 4)
                 }
-                .listStyle(.sidebar)
-                
-                Divider()
-                
-                // Status
-                HStack {
-                    Circle()
-                        .fill(bridge.isRunning ? Color.green : Color.red)
-                        .frame(width: 8, height: 8)
-                    
-                    Text(bridge.isRunning ? "Backend running" : "Backend stopped")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-                .padding()
             }
-            .navigationSplitViewColumnWidth(min: 200, ideal: 220)
+            .listStyle(.sidebar)
+            .navigationSplitViewColumnWidth(min: 140, ideal: 160, max: 200)
         } detail: {
             switch selectedSection {
             case .vault:
                 VaultView()
             case .decisions:
                 DecisionSimulatorView()
-            case .none:
-                WelcomeView()
             }
         }
         .task {
-            // Start the Python backend
-            do {
-                try await bridge.start()
-            } catch {
-                print("Failed to start Python backend: \(error)")
-            }
-        }
-    }
-}
-
-struct WelcomeView: View {
-    var body: some View {
-        VStack(spacing: 24) {
-            Image(systemName: "brain")
-                .font(.system(size: 72))
-                .foregroundColor(.accentColor)
-            
-            Text("Welcome to Mneme")
-                .font(.largeTitle)
-                .fontWeight(.bold)
-            
-            Text("Your private thinking tool")
-                .font(.title3)
-                .foregroundColor(.secondary)
-            
-            Divider()
-                .frame(maxWidth: 300)
-            
-            VStack(alignment: .leading, spacing: 16) {
-                FeatureRow(
-                    icon: "brain.head.profile",
-                    title: "Knowledge Vault",
-                    description: "Store notes and search by meaning, not keywords"
-                )
-                
-                FeatureRow(
-                    icon: "scale.3d",
-                    title: "Decision Simulator",
-                    description: "Model decisions and explore what-if scenarios"
-                )
-                
-                FeatureRow(
-                    icon: "lock.shield",
-                    title: "Local-First",
-                    description: "Everything runs on your Mac. No cloud. No accounts."
-                )
-            }
-            .frame(maxWidth: 400)
-        }
-        .padding(48)
-    }
-}
-
-struct FeatureRow: View {
-    let icon: String
-    let title: String
-    let description: String
-    
-    var body: some View {
-        HStack(alignment: .top, spacing: 16) {
-            Image(systemName: icon)
-                .font(.title2)
-                .foregroundColor(.accentColor)
-                .frame(width: 32)
-            
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title)
-                    .font(.headline)
-                
-                Text(description)
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-            }
+            // Use Task.detached to break out of SwiftUI's view update context
+            await Task.detached { @MainActor [bridge] in
+                do {
+                    try await bridge.start()
+                } catch {
+                    print("Failed to start Python backend: \(error)")
+                }
+            }.value
         }
     }
 }

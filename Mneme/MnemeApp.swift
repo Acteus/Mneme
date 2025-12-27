@@ -12,8 +12,10 @@ struct MnemeApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .frame(minWidth: 800, minHeight: 500)
         }
-        .windowStyle(.automatic)
+        .windowResizability(.contentSize)
+        .defaultSize(width: 1100, height: 700)
         .commands {
             // Custom menu commands
             CommandGroup(after: .newItem) {

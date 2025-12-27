@@ -13,14 +13,11 @@ class VaultViewModel: ObservableObject {
     @Published var notes: [Note] = []
     @Published var searchResults: [Note] = []
     @Published var selectedNote: Note?
-    @Published var searchQuery = "" {
-        didSet {
-            handleSearchQueryChange()
-        }
-    }
+    @Published var searchQuery = ""
     @Published var isSearching = false
     @Published var isLoading = false
     @Published var error: String?
+    @Published var showError = false
     @Published var allTags: [(String, Int)] = []
     @Published var selectedTag: String?
     
@@ -30,6 +27,12 @@ class VaultViewModel: ObservableObject {
     // MARK: - Note Operations
     
     func loadNotes() async {
+        // #region agent log
+        let logPath = "/Users/gdullas/Desktop/Projects/Mneme/.cursor/debug.log"
+        let logEntry = "{\"location\":\"VaultViewModel.swift:32\",\"message\":\"loadNotes - using detached task\",\"data\":{},\"timestamp\":\(Date().timeIntervalSince1970 * 1000),\"sessionId\":\"debug-session\",\"hypothesisId\":\"K\",\"runId\":\"post-fix-v5\"}\n"
+        if let data = logEntry.data(using: .utf8), let handle = FileHandle(forWritingAtPath: logPath) { handle.seekToEndOfFile(); handle.write(data); handle.closeFile() } else { FileManager.default.createFile(atPath: logPath, contents: logEntry.data(using: .utf8)) }
+        // #endregion
+        
         isLoading = true
         error = nil
         
@@ -104,21 +107,39 @@ class VaultViewModel: ObservableObject {
     
     // MARK: - Search
     
-    private func handleSearchQueryChange() {
+    /// Called from the View's onChange modifier - safe pattern for SwiftUI
+    func handleSearchQueryChange(oldValue: String, newValue: String) {
+        // #region agent log
+        let logPath = "/Users/gdullas/Desktop/Projects/Mneme/.cursor/debug.log"
+        let logEntry1 = "{\"location\":\"VaultViewModel.swift:107\",\"message\":\"handleSearchQueryChange entry (onChange)\",\"data\":{\"oldValue\":\"\(oldValue)\",\"newValue\":\"\(newValue)\"},\"timestamp\":\(Date().timeIntervalSince1970 * 1000),\"sessionId\":\"debug-session\",\"hypothesisId\":\"A\",\"runId\":\"post-fix\"}\n"
+        if let data = logEntry1.data(using: .utf8), let handle = FileHandle(forWritingAtPath: logPath) { handle.seekToEndOfFile(); handle.write(data); handle.closeFile() } else { FileManager.default.createFile(atPath: logPath, contents: logEntry1.data(using: .utf8)) }
+        // #endregion
+        
+        // Skip if value hasn't actually changed
+        guard oldValue != newValue else { return }
+        
         // Cancel any previous search task
         searchTask?.cancel()
         
-        let query = searchQuery
+        let query = newValue
         
-        if query.isEmpty {
-            searchResults = []
-            isSearching = false
-            return
-        }
-        
-        // Debounce by creating a new task with a delay
-        searchTask = Task {
-            // Wait 300ms before searching
+        // Use Task to properly defer state changes
+        searchTask = Task { @MainActor in
+            // Yield to allow SwiftUI to finish its update cycle
+            await Task.yield()
+            
+            // #region agent log
+            let logEntry2 = "{\"location\":\"VaultViewModel.swift:125\",\"message\":\"searchTask started (onChange)\",\"data\":{\"query\":\"\(query)\"},\"timestamp\":\(Date().timeIntervalSince1970 * 1000),\"sessionId\":\"debug-session\",\"hypothesisId\":\"A\",\"runId\":\"post-fix\"}\n"
+            if let data = logEntry2.data(using: .utf8), let handle = FileHandle(forWritingAtPath: logPath) { handle.seekToEndOfFile(); handle.write(data); handle.closeFile() }
+            // #endregion
+            
+            if query.isEmpty {
+                searchResults = []
+                isSearching = false
+                return
+            }
+            
+            // Wait 300ms before searching (debounce)
             try? await Task.sleep(nanoseconds: 300_000_000)
             
             // Check if task was cancelled
@@ -187,6 +208,12 @@ class VaultViewModel: ObservableObject {
     }
     
     func loadNotesByTag(_ tag: String) async {
+        // #region agent log
+        let logPath = "/Users/gdullas/Desktop/Projects/Mneme/.cursor/debug.log"
+        let logEntry = "{\"location\":\"VaultViewModel.swift:189\",\"message\":\"loadNotesByTag called\",\"data\":{\"tag\":\"\(tag)\"},\"timestamp\":\(Date().timeIntervalSince1970 * 1000),\"sessionId\":\"debug-session\",\"hypothesisId\":\"D\"}\n"
+        if let data = logEntry.data(using: .utf8), let handle = FileHandle(forWritingAtPath: logPath) { handle.seekToEndOfFile(); handle.write(data); handle.closeFile() } else { FileManager.default.createFile(atPath: logPath, contents: logEntry.data(using: .utf8)) }
+        // #endregion
+        
         selectedTag = tag
         
         do {

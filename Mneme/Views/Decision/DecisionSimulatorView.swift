@@ -11,7 +11,16 @@ struct DecisionSimulatorView: View {
     @StateObject private var viewModel = DecisionViewModel()
     @State private var showingNewDecision = false
     
+    // #region agent log
+    private func logStartup() {
+        let logPath = "/Users/gdullas/Desktop/Projects/Mneme/.cursor/debug.log"
+        let logEntry = "{\"location\":\"DecisionSimulatorView.swift:14\",\"message\":\"DecisionSimulatorView body evaluated - NEW CODE RUNNING\",\"data\":{\"version\":\"post-fix-v2\"},\"timestamp\":\(Date().timeIntervalSince1970 * 1000),\"sessionId\":\"debug-session\",\"runId\":\"post-fix-v2\"}\n"
+        if let data = logEntry.data(using: .utf8), let handle = FileHandle(forWritingAtPath: logPath) { handle.seekToEndOfFile(); handle.write(data); handle.closeFile() } else { FileManager.default.createFile(atPath: logPath, contents: logEntry.data(using: .utf8)) }
+    }
+    // #endregion
+    
     var body: some View {
+        let _ = logStartup()
         NavigationSplitView {
             DecisionListView(
                 decisions: viewModel.decisions,
@@ -52,20 +61,34 @@ struct DecisionSimulatorView: View {
             }
         }
         .task {
-            do {
-                try await PythonBridge.shared.start()
+            // Use Task.detached to break out of SwiftUI's view update context
+            await Task.detached { @MainActor [viewModel] in
+                // #region agent log
+                let logPath = "/Users/gdullas/Desktop/Projects/Mneme/.cursor/debug.log"
+                let logEntry = "{\"location\":\"DecisionSimulatorView.swift:task\",\"message\":\"Detached task starting loadDecisions\",\"data\":{},\"timestamp\":\(Date().timeIntervalSince1970 * 1000),\"sessionId\":\"debug-session\",\"hypothesisId\":\"K\",\"runId\":\"post-fix-v5\"}\n"
+                if let data = logEntry.data(using: .utf8), let handle = FileHandle(forWritingAtPath: logPath) { handle.seekToEndOfFile(); handle.write(data); handle.closeFile() } else { FileManager.default.createFile(atPath: logPath, contents: logEntry.data(using: .utf8)) }
+                // #endregion
+                
                 await viewModel.loadDecisions()
-            } catch {
-                viewModel.error = error.localizedDescription
-            }
+            }.value
         }
-        .alert("Error", isPresented: .init(
-            get: { viewModel.error != nil },
-            set: { if !$0 { viewModel.error = nil } }
-        )) {
-            Button("OK") { viewModel.error = nil }
+        .alert("Error", isPresented: $viewModel.showError) {
+            Button("OK") {
+                viewModel.showError = false
+                viewModel.error = nil
+            }
         } message: {
             Text(viewModel.error ?? "")
+        }
+        .onChange(of: viewModel.error) { _, newValue in
+            // #region agent log
+            let logPath = "/Users/gdullas/Desktop/Projects/Mneme/.cursor/debug.log"
+            let logEntry = "{\"location\":\"DecisionSimulatorView.swift:67\",\"message\":\"error onChange triggered\",\"data\":{\"hasError\":\(newValue != nil)},\"timestamp\":\(Date().timeIntervalSince1970 * 1000),\"sessionId\":\"debug-session\",\"hypothesisId\":\"B\",\"runId\":\"post-fix\"}\n"
+            if let data = logEntry.data(using: .utf8), let handle = FileHandle(forWritingAtPath: logPath) { handle.seekToEndOfFile(); handle.write(data); handle.closeFile() } else { FileManager.default.createFile(atPath: logPath, contents: logEntry.data(using: .utf8)) }
+            // #endregion
+            if newValue != nil {
+                viewModel.showError = true
+            }
         }
     }
 }
@@ -95,8 +118,8 @@ struct DecisionRowView: View {
     let decision: Decision
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 8) {
                 Text(decision.title)
                     .font(.headline)
                     .lineLimit(1)
@@ -110,20 +133,17 @@ struct DecisionRowView: View {
                 Text(description)
                     .font(.caption)
                     .foregroundColor(.secondary)
-                    .lineLimit(2)
+                    .lineLimit(1)
             }
             
-            HStack {
+            HStack(spacing: 12) {
                 Label("\(decision.choices.count)", systemImage: "arrow.triangle.branch")
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-                
                 Label("\(decision.factors.count)", systemImage: "slider.horizontal.3")
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
             }
+            .font(.caption2)
+            .foregroundColor(.secondary)
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 2)
     }
 }
 
@@ -133,11 +153,12 @@ struct StatusBadge: View {
     var body: some View {
         Text(status.displayName)
             .font(.caption2)
-            .padding(.horizontal, 6)
+            .fontWeight(.medium)
+            .padding(.horizontal, 5)
             .padding(.vertical, 2)
             .background(backgroundColor)
             .foregroundColor(.white)
-            .cornerRadius(4)
+            .cornerRadius(3)
     }
     
     private var backgroundColor: Color {
@@ -161,55 +182,60 @@ struct DecisionDetailView: View {
     
     var body: some View {
         VStack(spacing: 0) {
-            // Header
-            VStack(alignment: .leading, spacing: 8) {
+            // Header - centered
+            VStack(spacing: 4) {
                 Text(decision.title)
-                    .font(.largeTitle)
+                    .font(.title)
                     .fontWeight(.bold)
                 
-                if let description = decision.description {
+                if let description = decision.description, !description.isEmpty {
                     Text(description)
+                        .font(.subheadline)
                         .foregroundColor(.secondary)
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding()
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal)
+            .padding(.top, 16)
+            .padding(.bottom, 12)
             
-            // Tab selector
+            // Tab selector - centered
             Picker("", selection: $selectedTab) {
                 Text("Setup").tag(0)
                 Text("Scores").tag(1)
                 Text("Results").tag(2)
             }
             .pickerStyle(.segmented)
-            .padding(.horizontal)
+            .labelsHidden()
+            .frame(maxWidth: 280)
+            .padding(.bottom, 12)
             
             Divider()
-                .padding(.top, 8)
             
-            // Tab content
-            TabView(selection: $selectedTab) {
-                DecisionSetupView(
-                    decision: decision,
-                    viewModel: viewModel,
-                    showingAddChoice: $showingAddChoice,
-                    showingAddFactor: $showingAddFactor
-                )
-                .tag(0)
-                
-                ScoreMatrixView(
-                    decision: decision,
-                    viewModel: viewModel
-                )
-                .tag(1)
-                
-                SimulationResultsView(
-                    decision: decision,
-                    viewModel: viewModel
-                )
-                .tag(2)
+            // Tab content - use switch instead of TabView for macOS
+            Group {
+                switch selectedTab {
+                case 0:
+                    DecisionSetupView(
+                        decision: decision,
+                        viewModel: viewModel,
+                        showingAddChoice: $showingAddChoice,
+                        showingAddFactor: $showingAddFactor
+                    )
+                case 1:
+                    ScoreMatrixView(
+                        decision: decision,
+                        viewModel: viewModel
+                    )
+                case 2:
+                    SimulationResultsView(
+                        decision: decision,
+                        viewModel: viewModel
+                    )
+                default:
+                    EmptyView()
+                }
             }
-            .tabViewStyle(.automatic)
         }
         .sheet(isPresented: $showingAddChoice) {
             AddItemSheet(
@@ -243,67 +269,77 @@ struct DecisionSetupView: View {
     @Binding var showingAddFactor: Bool
     
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                // Choices
-                VStack(alignment: .leading, spacing: 12) {
-                    HStack {
-                        Text("Choices")
-                            .font(.title2)
-                            .fontWeight(.semibold)
+        GeometryReader { geometry in
+            ScrollView {
+                VStack(spacing: 20) {
+                    // Choices section
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text("Choices")
+                                .font(.headline)
+                            
+                            Spacer()
+                            
+                            Button(action: { showingAddChoice = true }) {
+                                Label("Add", systemImage: "plus")
+                                    .font(.caption)
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                        }
                         
-                        Spacer()
-                        
-                        Button(action: { showingAddChoice = true }) {
-                            Label("Add", systemImage: "plus")
+                        if decision.choices.isEmpty {
+                            Text("No choices yet. Add the options you're considering.")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .frame(maxWidth: .infinity)
+                                .padding(12)
+                                .background(Color(.controlBackgroundColor))
+                                .cornerRadius(8)
+                        } else {
+                            ForEach(decision.choices) { choice in
+                                ChoiceCard(choice: choice)
+                            }
                         }
                     }
                     
-                    if decision.choices.isEmpty {
-                        Text("No choices yet. Add the options you're considering.")
-                            .foregroundColor(.secondary)
-                            .padding()
-                            .frame(maxWidth: .infinity)
-                            .background(Color(.controlBackgroundColor))
-                            .cornerRadius(8)
-                    } else {
-                        ForEach(decision.choices) { choice in
-                            ChoiceCard(choice: choice)
-                        }
-                    }
-                }
-                
-                Divider()
-                
-                // Factors
-                VStack(alignment: .leading, spacing: 12) {
-                    HStack {
-                        Text("Factors")
-                            .font(.title2)
-                            .fontWeight(.semibold)
-                        
-                        Spacer()
-                        
-                        Button(action: { showingAddFactor = true }) {
-                            Label("Add", systemImage: "plus")
-                        }
-                    }
+                    Divider()
                     
-                    if decision.factors.isEmpty {
-                        Text("No factors yet. Add the criteria that matter to you.")
-                            .foregroundColor(.secondary)
-                            .padding()
-                            .frame(maxWidth: .infinity)
-                            .background(Color(.controlBackgroundColor))
-                            .cornerRadius(8)
-                    } else {
-                        ForEach(decision.factors) { factor in
-                            FactorCard(factor: factor)
+                    // Factors section
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text("Factors")
+                                .font(.headline)
+                            
+                            Spacer()
+                            
+                            Button(action: { showingAddFactor = true }) {
+                                Label("Add", systemImage: "plus")
+                                    .font(.caption)
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                        }
+                        
+                        if decision.factors.isEmpty {
+                            Text("No factors yet. Add the criteria that matter to you.")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .frame(maxWidth: .infinity)
+                                .padding(12)
+                                .background(Color(.controlBackgroundColor))
+                                .cornerRadius(8)
+                        } else {
+                            ForEach(decision.factors) { factor in
+                                FactorCard(factor: factor)
+                            }
                         }
                     }
                 }
+                .frame(maxWidth: 500)
+                .padding(20)
+                .frame(width: geometry.size.width, alignment: .center)
             }
-            .padding()
         }
     }
 }
@@ -312,20 +348,21 @@ struct ChoiceCard: View {
     let choice: Choice
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 2) {
             Text(choice.name)
-                .font(.headline)
+                .font(.subheadline)
+                .fontWeight(.medium)
             
-            if let description = choice.description {
+            if let description = choice.description, !description.isEmpty {
                 Text(description)
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
         }
-        .padding()
+        .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color(.controlBackgroundColor))
-        .cornerRadius(8)
+        .cornerRadius(6)
     }
 }
 
@@ -333,12 +370,13 @@ struct FactorCard: View {
     let factor: Factor
     
     var body: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 4) {
+        HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: 2) {
                 Text(factor.name)
-                    .font(.headline)
+                    .font(.subheadline)
+                    .fontWeight(.medium)
                 
-                if let description = factor.description {
+                if let description = factor.description, !description.isEmpty {
                     Text(description)
                         .font(.caption)
                         .foregroundColor(.secondary)
@@ -348,20 +386,18 @@ struct FactorCard: View {
             Spacer()
             
             // Weight indicator
-            VStack(alignment: .trailing) {
-                Text("Weight")
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-                
-                Text(String(format: "%.1f", factor.weight))
-                    .font(.title3)
-                    .fontWeight(.semibold)
-                    .foregroundColor(.accentColor)
-            }
+            Text(String(format: "%.1f", factor.weight))
+                .font(.subheadline)
+                .fontWeight(.semibold)
+                .foregroundColor(.accentColor)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(Color.accentColor.opacity(0.1))
+                .cornerRadius(4)
         }
-        .padding()
+        .padding(10)
         .background(Color(.controlBackgroundColor))
-        .cornerRadius(8)
+        .cornerRadius(6)
     }
 }
 

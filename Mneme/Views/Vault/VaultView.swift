@@ -10,16 +10,29 @@ import SwiftUI
 struct VaultView: View {
     @StateObject private var viewModel = VaultViewModel()
     @State private var showingNewNote = false
-    @State private var showingEditor = false
     @State private var editingNote: Note?
+    @State private var relatedNotes: [Note] = []
+    @State private var showingRelated = false
+    
+    // #region agent log
+    private func logStartup() {
+        let logPath = "/Users/gdullas/Desktop/Projects/Mneme/.cursor/debug.log"
+        let logEntry = "{\"location\":\"VaultView.swift:17\",\"message\":\"VaultView body evaluated - NEW CODE RUNNING\",\"data\":{\"version\":\"post-fix-v2\"},\"timestamp\":\(Date().timeIntervalSince1970 * 1000),\"sessionId\":\"debug-session\",\"runId\":\"post-fix-v2\"}\n"
+        if let data = logEntry.data(using: .utf8), let handle = FileHandle(forWritingAtPath: logPath) { handle.seekToEndOfFile(); handle.write(data); handle.closeFile() } else { FileManager.default.createFile(atPath: logPath, contents: logEntry.data(using: .utf8)) }
+    }
+    // #endregion
     
     var body: some View {
+        let _ = logStartup()
         NavigationSplitView {
             VStack(spacing: 0) {
                 // Search bar
                 SearchBar(text: $viewModel.searchQuery, placeholder: "Search by meaning...")
                     .padding(.horizontal)
                     .padding(.vertical, 8)
+                    .onChange(of: viewModel.searchQuery) { oldValue, newValue in
+                        viewModel.handleSearchQueryChange(oldValue: oldValue, newValue: newValue)
+                    }
                 
                 Divider()
                 
@@ -76,9 +89,11 @@ struct VaultView: View {
                     note: note,
                     onEdit: { editingNote = note },
                     onFindRelated: {
-                        Task {
-                            let related = await viewModel.findRelated(to: note)
-                            // Handle showing related notes
+                        Task { @MainActor in
+                            relatedNotes = await viewModel.findRelated(to: note)
+                            if !relatedNotes.isEmpty {
+                                showingRelated = true
+                            }
                         }
                     }
                 )
@@ -89,6 +104,15 @@ struct VaultView: View {
                     message: "Select a note from the sidebar or create a new one"
                 )
             }
+        }
+        .sheet(isPresented: $showingRelated) {
+            RelatedNotesSheet(
+                notes: relatedNotes,
+                onSelect: { note in
+                    viewModel.selectedNote = note
+                    showingRelated = false
+                }
+            )
         }
         .sheet(isPresented: $showingNewNote) {
             NoteEditorSheet(
@@ -115,22 +139,35 @@ struct VaultView: View {
             )
         }
         .task {
-            // Start Python bridge
-            do {
-                try await PythonBridge.shared.start()
+            // Use Task.detached to break out of SwiftUI's view update context
+            await Task.detached { @MainActor [viewModel] in
+                // #region agent log
+                let logPath = "/Users/gdullas/Desktop/Projects/Mneme/.cursor/debug.log"
+                let logEntry = "{\"location\":\"VaultView.swift:task\",\"message\":\"Detached task starting loadNotes\",\"data\":{},\"timestamp\":\(Date().timeIntervalSince1970 * 1000),\"sessionId\":\"debug-session\",\"hypothesisId\":\"K\",\"runId\":\"post-fix-v5\"}\n"
+                if let data = logEntry.data(using: .utf8), let handle = FileHandle(forWritingAtPath: logPath) { handle.seekToEndOfFile(); handle.write(data); handle.closeFile() } else { FileManager.default.createFile(atPath: logPath, contents: logEntry.data(using: .utf8)) }
+                // #endregion
+                
                 await viewModel.loadNotes()
                 await viewModel.loadTags()
-            } catch {
-                viewModel.error = error.localizedDescription
-            }
+            }.value
         }
-        .alert("Error", isPresented: .init(
-            get: { viewModel.error != nil },
-            set: { if !$0 { viewModel.error = nil } }
-        )) {
-            Button("OK") { viewModel.error = nil }
+        .alert("Error", isPresented: $viewModel.showError) {
+            Button("OK") {
+                viewModel.showError = false
+                viewModel.error = nil
+            }
         } message: {
             Text(viewModel.error ?? "")
+        }
+        .onChange(of: viewModel.error) { _, newValue in
+            // #region agent log
+            let logPath = "/Users/gdullas/Desktop/Projects/Mneme/.cursor/debug.log"
+            let logEntry = "{\"location\":\"VaultView.swift:143\",\"message\":\"error onChange triggered\",\"data\":{\"hasError\":\(newValue != nil)},\"timestamp\":\(Date().timeIntervalSince1970 * 1000),\"sessionId\":\"debug-session\",\"hypothesisId\":\"B\",\"runId\":\"post-fix\"}\n"
+            if let data = logEntry.data(using: .utf8), let handle = FileHandle(forWritingAtPath: logPath) { handle.seekToEndOfFile(); handle.write(data); handle.closeFile() } else { FileManager.default.createFile(atPath: logPath, contents: logEntry.data(using: .utf8)) }
+            // #endregion
+            if newValue != nil {
+                viewModel.showError = true
+            }
         }
     }
 }
@@ -246,7 +283,7 @@ struct NoteRowView: View {
     let note: Note
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 2) {
             Text(note.displayTitle)
                 .font(.headline)
                 .lineLimit(1)
@@ -254,30 +291,30 @@ struct NoteRowView: View {
             Text(note.preview)
                 .font(.caption)
                 .foregroundColor(.secondary)
-                .lineLimit(2)
+                .lineLimit(1)
             
-            HStack {
+            HStack(spacing: 4) {
                 Text(note.updatedAt, style: .relative)
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
                 
-                Spacer()
-                
                 if !note.tags.isEmpty {
-                    HStack(spacing: 2) {
-                        ForEach(note.tags.prefix(2), id: \.self) { tag in
-                            Text(tag)
-                                .font(.caption2)
-                                .padding(.horizontal, 4)
-                                .padding(.vertical, 1)
-                                .background(Color.accentColor.opacity(0.2))
-                                .cornerRadius(4)
-                        }
+                    Text("•")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                    
+                    ForEach(note.tags.prefix(2), id: \.self) { tag in
+                        Text(tag)
+                            .font(.caption2)
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1)
+                            .background(Color.accentColor.opacity(0.15))
+                            .cornerRadius(3)
                     }
                 }
             }
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 2)
     }
 }
 
@@ -308,8 +345,8 @@ struct SearchResultRow: View {
     let note: Note
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 6) {
                 Text(note.displayTitle)
                     .font(.headline)
                     .lineLimit(1)
@@ -318,21 +355,18 @@ struct SearchResultRow: View {
                 
                 if let similarity = note.similarity {
                     Text("\(Int(similarity * 100))%")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(Color.accentColor.opacity(0.2))
-                        .cornerRadius(8)
+                        .font(.caption2)
+                        .fontWeight(.medium)
+                        .foregroundColor(.accentColor)
                 }
             }
             
             Text(note.preview)
                 .font(.caption)
                 .foregroundColor(.secondary)
-                .lineLimit(2)
+                .lineLimit(1)
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 2)
     }
 }
 
@@ -344,55 +378,57 @@ struct NoteDetailView: View {
     let onFindRelated: () -> Void
     
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                // Header
-                VStack(alignment: .leading, spacing: 8) {
-                    if let title = note.title, !title.isEmpty {
-                        Text(title)
-                            .font(.largeTitle)
-                            .fontWeight(.bold)
-                    }
-                    
-                    HStack {
-                        Label(note.createdAt.formatted(date: .abbreviated, time: .shortened), systemImage: "calendar")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
+        GeometryReader { geometry in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    // Header
+                    VStack(alignment: .leading, spacing: 6) {
+                        if let title = note.title, !title.isEmpty {
+                            Text(title)
+                                .font(.title)
+                                .fontWeight(.bold)
+                        }
                         
-                        if note.createdAt != note.updatedAt {
-                            Text("•")
-                                .foregroundColor(.secondary)
-                            
-                            Label("Updated \(note.updatedAt, style: .relative)", systemImage: "pencil")
+                        HStack(spacing: 6) {
+                            Text(note.createdAt.formatted(date: .abbreviated, time: .shortened))
                                 .font(.caption)
                                 .foregroundColor(.secondary)
-                        }
-                    }
-                    
-                    if !note.tags.isEmpty {
-                        HStack {
-                            ForEach(note.tags, id: \.self) { tag in
-                                Text(tag)
+                            
+                            if note.createdAt != note.updatedAt {
+                                Text("•")
+                                    .foregroundColor(.secondary)
+                                Text("Updated \(note.updatedAt, style: .relative)")
                                     .font(.caption)
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 4)
-                                    .background(Color.accentColor.opacity(0.2))
-                                    .cornerRadius(8)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                        
+                        if !note.tags.isEmpty {
+                            HStack(spacing: 4) {
+                                ForEach(note.tags, id: \.self) { tag in
+                                    Text(tag)
+                                        .font(.caption)
+                                        .padding(.horizontal, 6)
+                                        .padding(.vertical, 2)
+                                        .background(Color.accentColor.opacity(0.15))
+                                        .cornerRadius(4)
+                                }
                             }
                         }
                     }
+                    
+                    Divider()
+                    
+                    // Content
+                    Text(note.content)
+                        .font(.body)
+                        .textSelection(.enabled)
+                        .lineSpacing(3)
                 }
-                
-                Divider()
-                
-                // Content
-                Text(note.content)
-                    .font(.body)
-                    .textSelection(.enabled)
-                    .lineSpacing(4)
+                .frame(maxWidth: 600)
+                .padding(16)
+                .frame(width: geometry.size.width, alignment: .center)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(24)
         }
         .toolbar {
             ToolbarItemGroup {
@@ -491,6 +527,68 @@ struct NoteEditorSheet: View {
     }
 }
 
+// MARK: - Related Notes Sheet
+
+struct RelatedNotesSheet: View {
+    let notes: [Note]
+    let onSelect: (Note) -> Void
+    
+    @Environment(\.dismiss) private var dismiss
+    
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("Related Notes")
+                    .font(.headline)
+                Spacer()
+                Button("Done") { dismiss() }
+            }
+            .padding()
+            
+            Divider()
+            
+            if notes.isEmpty {
+                VStack(spacing: 8) {
+                    Image(systemName: "doc.text.magnifyingglass")
+                        .font(.largeTitle)
+                        .foregroundColor(.secondary)
+                    Text("No related notes found")
+                        .foregroundColor(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                List(notes) { note in
+                    Button(action: { onSelect(note) }) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack {
+                                Text(note.displayTitle)
+                                    .font(.headline)
+                                    .foregroundColor(.primary)
+                                
+                                Spacer()
+                                
+                                if let similarity = note.similarity {
+                                    Text("\(Int(similarity * 100))%")
+                                        .font(.caption)
+                                        .foregroundColor(.accentColor)
+                                }
+                            }
+                            
+                            Text(note.preview)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .lineLimit(2)
+                        }
+                        .padding(.vertical, 4)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+        .frame(minWidth: 400, minHeight: 300)
+    }
+}
+
 // MARK: - Empty State
 
 struct EmptyStateView: View {
@@ -512,7 +610,7 @@ struct EmptyStateView: View {
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
         .padding()
     }
 }

@@ -198,6 +198,13 @@ class PythonBridge: ObservableObject {
         do {
             try process.run()
             self.process = process
+            
+            // #region agent log
+            let logPath = "/Users/gdullas/Desktop/Projects/Mneme/.cursor/debug.log"
+            let logEntry = "{\"location\":\"PythonBridge.swift:201\",\"message\":\"About to set isRunning = true\",\"data\":{},\"timestamp\":\(Date().timeIntervalSince1970 * 1000),\"sessionId\":\"debug-session\",\"hypothesisId\":\"K\",\"runId\":\"post-fix-v5\"}\n"
+            if let data = logEntry.data(using: .utf8), let handle = FileHandle(forWritingAtPath: logPath) { handle.seekToEndOfFile(); handle.write(data); handle.closeFile() } else { FileManager.default.createFile(atPath: logPath, contents: logEntry.data(using: .utf8)) }
+            // #endregion
+            
             self.isRunning = true
             
             // Wait for ready signal
